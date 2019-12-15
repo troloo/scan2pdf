@@ -1,0 +1,82 @@
+#!/bin/bash 
+
+SCANDIR="$HOME/scan2pdf"
+DEVICE="epjitsu:libusb:001:006"
+MODE="Color"
+RES="150"
+WIDTH="210"
+HEIGHT="290"
+SOURCE="ADF Duplex"
+
+SCAN_OPTS="--device ${DEVICE} --mode $MODE --resolution $RES --page-width=$WIDTH --page-height=$HEIGHT --source=\"$SOURCE\""
+
+SCAN="scanimage ${SCAN_OPTS} --progress --verbose --batch  --format=tiff"
+
+# Initialize
+mkdir -p $SCANDIR/tmp
+
+cd $SCANDIR/tmp
+
+
+
+while :
+do
+	NAME=$(zenity --entry --title="Bezeichnung" --text="Bezeichnung eingeben:")
+	if [ $? -eq 1 ]; then
+		exit 0
+	fi
+
+	if [ $NAME -eq "" ]; then
+		continue
+	fi
+
+	echo $SCAN
+	eval $SCAN 
+	if [ $? -eq 7  ]; then
+		continue
+	fi
+
+	echo "Start convert"
+	echo "Auto Rotation"
+	for i in out*.tif; 
+	do 
+	  ROT=$(tesseract $i  stdout -l deu --psm 0 2> /dev/null | grep Rotate |  awk '{print $2}')
+	  echo "ROT: "$ROT
+	  if [ ! -z $ROT ]; then
+		 if [ $ROT -ne 0 ]; then
+		     CONV="convert $i -rotate $ROT $i"
+		     echo $CONV; eval $CONV
+		  fi
+	  fi
+	done
+
+
+
+
+	echo "Remove Empty Pages"
+	for i in out*.tif; do
+		histogram=`convert "${i}" -threshold 50% -format %c histogram:info:-`
+		white=`echo "${histogram}" | grep "white" | sed -n 's/^ *\(.*\):.*$/\1/p'`
+		black=`echo "${histogram}" | grep "black" | sed -n 's/^ *\(.*\):.*$/\1/p'`
+		blank=`echo "scale=4; ${black}/${white} < 0.005" | bc`
+		if [ ${blank} -eq 1 ]
+		then
+		    echo "${i} seems to be blank - removing it..."
+		    rm ${i}
+		fi
+	done
+
+
+
+
+
+
+
+	tiffcp -c lzw out*.tif scan.tif
+	DAT=$(date +"%Y%m%d")
+	tesseract -l deu --psm 1 scan.tif ../$DAT\_$NAME pdf
+	rm $SCANDIR/tmp/* 
+done
+
+
+
